@@ -20,6 +20,9 @@ library(openxlsx)
 
 source("R/predict_utils.R")
 
+# allow larger uploads than Shiny's 5 MB default (files with many spectra)
+options(shiny.maxRequestSize = 30 * 1024^2)
+
 MODELS_DIR <- "Models"
 DATA_DIR   <- "data"
 
@@ -196,8 +199,10 @@ render_prediction_report_html <- function(cfg, result) {
              <p>Estimated uncertainty: &plusmn; 2 &times; test RMSE (%.1f %s).</p>",
             result$value, cfg$unit, result$lower, result$upper, cfg$unit, result$uncertainty / 2, cfg$unit)
   } else {
-    probs <- paste(sprintf("%s: %.1f%%", names(result$probabilities), as.numeric(result$probabilities) * 100), collapse = "<br>")
-    sprintf("<p style='font-size:1.4em'><b>%s</b></p><p>Class probabilities:<br>%s</p>", result$class, probs)
+    probs <- paste(sprintf("%s: %.1f%%", vapply(names(result$probabilities), pretty_class, "", cfg = cfg),
+                           as.numeric(result$probabilities) * 100), collapse = "<br>")
+    sprintf("<p style='font-size:1.4em'><b>%s</b></p><p>Class probabilities:<br>%s</p>",
+            pretty_class(result$class, cfg), probs)
   }
   resample_note <- if (isTRUE(result$resampled)) {
     "<p><i>Note: the uploaded spectrum did not match the model's reference grid; it was resampled by linear interpolation before prediction.</i></p>"
@@ -207,12 +212,29 @@ render_prediction_report_html <- function(cfg, result) {
     h1{color:%s} .disclaimer{background:#fff3cd;border:1px solid #ffe08a;padding:1em;border-radius:6px;margin-top:2em}
   </style></head><body>
   <h1>WineMetalScan &mdash; Prediction result: %s (%s)</h1>
-  <p><i>Generated: %s</i></p>
+  <p><i>Generated: %s</i><br>Sample: <b>%s</b></p>
   %s %s
   <div class="disclaimer"><b>Disclaimer:</b> %s</div>
   </body></html>',
-  cfg$color, cfg$label, cfg$symbol, format(Sys.time(), "%Y-%m-%d %H:%M"), body, resample_note,
+  cfg$color, cfg$label, cfg$symbol, format(Sys.time(), "%Y-%m-%d %H:%M"),
+  if (is.null(result$sample_id)) "-" else result$sample_id, body, resample_note,
   COMMON_INFO$disclaimer)
+}
+
+
+# Readable class names: the models store sanitised names such as
+# "Lower.than.10.mg.L"; show them as "Lower than 10 mg/L".
+pretty_class <- function(cl, cfg) {
+  if (is.null(cfg$limit)) return(gsub("\\.", " ", cl))
+  sprintf("%s than %g %s", sub("^([A-Za-z]+).*", "\\1", cl), cfg$limit, cfg$unit)
+}
+
+# Row-binds data frames that may have different columns (e.g. a sample
+# that failed has no prediction columns), filling the gaps with NA.
+dplyr_free_rbind <- function(dfs) {
+  cols <- unique(unlist(lapply(dfs, names)))
+  dfs <- lapply(dfs, function(d) { for (cn in setdiff(cols, names(d))) d[[cn]] <- NA; d[, cols, drop = FALSE] })
+  do.call(rbind, dfs)
 }
 
 # ==========================================================================
@@ -248,8 +270,8 @@ analyteUI <- function(id, cfg) {
                              p(COMMON_INFO$edta_protocol))
           ),
           tags$hr(),
-          downloadButton(ns("dl_sample"), "Download validation dataset", class = "btn-outline-secondary btn-sm w-100 mb-2"),
-          downloadButton(ns("dl_model_html"), "Download model summary sheet", class = "btn-outline-secondary btn-sm w-100"),
+          downloadButton(ns("dl_sample"), "Download validation dataset", class = "btn-primary btn-sm w-100 mb-2"),
+          downloadButton(ns("dl_model_html"), "Download model summary sheet", class = "btn-primary btn-sm w-100"),
           tags$hr(),
           div(class = "alert alert-warning", style = "font-size:0.85em", COMMON_INFO$disclaimer)
         )
@@ -396,6 +418,8 @@ analyteServer <- function(id, cfg) {
       req(input$btn_validate > 0, cfg$task == "classification")
       b <- bundle(); validate(need(!is.null(b), "Model not available."))
       te <- b$scatter_data
+      te$Actual    <- pretty_class(as.character(te$Actual), cfg)
+      te$Predicted <- pretty_class(as.character(te$Predicted), cfg)
       cm <- as.data.frame(table(Actual = te$Actual, Predicted = te$Predicted))
       ggplot(cm, aes(x = Actual, y = Predicted, fill = Freq)) +
         geom_tile(color = "white") +
@@ -430,8 +454,10 @@ analyteServer <- function(id, cfg) {
       }
       if (length(p$ids) > 1) {
         selectInput(session$ns("sample_pick"),
-                    sprintf("The file contains %d samples. Choose the one to predict:", length(p$ids)),
-                    choices = setNames(seq_along(p$ids), p$ids))
+                    sprintf("The file contains %d samples. Predict:", length(p$ids)),
+                    choices = c(setNames("all", "All samples"),
+                                setNames(seq_along(p$ids), p$ids)),
+                    selected = "all")
       } else {
         div(class = "text-muted", style = "font-size:0.85em", "1 spectrum detected.")
       }
@@ -443,7 +469,38 @@ analyteServer <- function(id, cfg) {
       if (is.null(input$spectrum_file)) return(list(error = "Upload a spectrum first."))
       p <- parsed()
       if (!is.null(p$error)) return(list(error = paste("Could not read the file:", p$error)))
-      i <- if (length(p$ids) > 1) as.integer(input$sample_pick) else 1L
+
+      pick <- if (length(p$ids) > 1 && !is.null(input$sample_pick)) input$sample_pick else "1"
+
+      # ---- all samples together: one row per sample in a table ----
+      if (identical(pick, "all")) {
+        rows <- lapply(seq_len(nrow(p$ab)), function(i) {
+          tryCatch({
+            r <- predict_spectrum(b, p$wn, p$ab[i, ])
+            if (r$task == "regression") {
+              data.frame(Sample = p$ids[i], Predicted = round(r$value, 2),
+                         Lower_95 = round(r$lower, 2), Upper_95 = round(r$upper, 2),
+                         Note = if (isTRUE(r$resampled)) "Resampled to model grid" else "",
+                         check.names = FALSE, stringsAsFactors = FALSE)
+            } else {
+              pr <- r$probabilities
+              out <- data.frame(Sample = p$ids[i], Predicted_class = pretty_class(r$class, cfg),
+                                check.names = FALSE, stringsAsFactors = FALSE)
+              for (cl in names(pr)) out[[paste0("P(", pretty_class(cl, cfg), ")")]] <- round(as.numeric(pr[[cl]]), 3)
+              out$Note <- if (isTRUE(r$resampled)) "Resampled to model grid" else ""
+              out
+            }
+          }, error = function(e) {
+            data.frame(Sample = p$ids[i], Note = paste("Failed:", conditionMessage(e)),
+                       check.names = FALSE, stringsAsFactors = FALSE)
+          })
+        })
+        tab <- dplyr_free_rbind(rows)
+        return(list(task = b$task, multi = TRUE, table = tab))
+      }
+
+      # ---- a single sample ----
+      i <- suppressWarnings(as.integer(pick))
       if (is.na(i) || i < 1 || i > nrow(p$ab)) i <- 1L
       tryCatch({
         res <- predict_spectrum(b, p$wn, p$ab[i, ])
@@ -457,6 +514,16 @@ analyteServer <- function(id, cfg) {
       ns <- session$ns
       if (!is.null(res$error)) {
         return(div(class = "alert alert-danger", res$error))
+      }
+      if (isTRUE(res$multi)) {
+        return(tagList(
+          div(class = "text-muted", style = "font-size:0.85em;margin-bottom:6px;",
+              if (res$task == "regression")
+                sprintf("Values in %s. Interval = prediction \u00b1 2\u00d7 test RMSE (approx. 95%%).", cfg$unit)
+              else "P(class) = probability assigned to each class."),
+          DTOutput(ns("multi_table")),
+          downloadButton(ns("dl_multi"), "Download all results (CSV)", class = "btn-primary btn-sm mt-2")
+        ))
       }
       sample_line <- div(style = "font-size:0.85em;color:#666;margin-bottom:6px;",
                          "Sample: ", tags$b(res$sample_id))
@@ -475,26 +542,41 @@ analyteServer <- function(id, cfg) {
               p(sprintf("Uncertainty: \u00b1 2\u00d7 test RMSE (\u00b1 %.1f %s)", res$uncertainty / 2, cfg$unit),
                 style = "font-size:0.85em;color:#666")
           ),
-          downloadButton(ns("dl_prediction"), "Download result (report)", class = "btn-outline-secondary btn-sm")
+          downloadButton(ns("dl_prediction"), "Download result (report)", class = "btn-primary btn-sm")
         )
       } else {
         probs <- res$probabilities
         tagList(
           sample_line, note,
           div(class = "p-3 mb-2", style = sprintf("background:%s10;border-left:4px solid %s;", cfg$color, cfg$color),
-              h3(res$class, style = sprintf("color:%s", cfg$color)),
+              h3(pretty_class(res$class, cfg), style = sprintf("color:%s", cfg$color)),
               lapply(names(probs), function(cl) {
                 pct <- round(as.numeric(probs[[cl]]) * 100, 1)
                 div(style = "margin-bottom:6px;",
-                    span(sprintf("%s: %.1f%%", cl, pct)),
+                    span(sprintf("%s: %.1f%%", pretty_class(cl, cfg), pct)),
                     div(style = sprintf("background:#eee;border-radius:4px;height:10px;width:100%%;"),
                         div(style = sprintf("background:%s;border-radius:4px;height:10px;width:%s%%;", cfg$color, pct))))
               })
           ),
-          downloadButton(ns("dl_prediction"), "Download result (report)", class = "btn-outline-secondary btn-sm")
+          downloadButton(ns("dl_prediction"), "Download result (report)", class = "btn-primary btn-sm")
         )
       }
     })
+
+    output$multi_table <- renderDT({
+      res <- pred_result()
+      req(isTRUE(res$multi))
+      datatable(res$table, rownames = FALSE,
+                options = list(pageLength = 10, scrollX = TRUE, dom = "tip"))
+    })
+
+    output$dl_multi <- downloadHandler(
+      filename = function() sprintf("Predictions_%s_%s.csv", cfg$symbol, format(Sys.time(), "%Y%m%d_%H%M")),
+      content = function(file) {
+        res <- pred_result()
+        write.csv(res$table, file, row.names = FALSE, na = "")
+      }
+    )
 
     output$dl_prediction <- downloadHandler(
       filename = function() sprintf("Prediction_%s_%s.html", cfg$symbol, format(Sys.time(), "%Y%m%d_%H%M")),
@@ -506,10 +588,22 @@ analyteServer <- function(id, cfg) {
 # ==========================================================================
 # Visual theme
 # ==========================================================================
-app_theme <- bs_theme(
-  version = 5, bootswatch = "flatly",
-  primary = "#7B1E3A", base_font = font_google("Inter"),
-  heading_font = font_google("Source Serif Pro")
+app_theme <- bs_add_rules(
+  bs_theme(
+    version = 5, bootswatch = "flatly",
+    primary = "#7B1E3A", base_font = font_google("Inter"),
+    heading_font = font_google("Source Serif Pro")
+  ),
+  # Every clickable control uses the same burgundy so users can recognise
+  # buttons at a glance: accordion headers ("How to format...", protocol)
+  # and the file-upload "Browse" button, in addition to the primary buttons.
+  ".accordion-button, .accordion-button:not(.collapsed) {
+     background-color: #7B1E3A; color: #ffffff; font-weight: 600; }
+   .accordion-button:hover { background-color: #96294A; color: #ffffff; }
+   .accordion-button:focus { box-shadow: 0 0 0 0.2rem rgba(123,30,58,.25); }
+   .accordion-button::after { filter: brightness(0) invert(1); }
+   .btn-default, .btn-file { background-color: #7B1E3A; border-color: #7B1E3A; color: #ffffff; }
+   .btn-default:hover, .btn-file:hover { background-color: #96294A; border-color: #96294A; color: #ffffff; }"
 )
 
 # ==========================================================================
