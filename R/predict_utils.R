@@ -7,7 +7,12 @@
 # ==========================================================================
 
 library(prospectr)
-library(caret)   # needed for predict() on the trained models (glmnet, pls, svmRadial)
+library(caret)   # needed for predict() on the trained models
+# caret calls these packages internally when predicting, but they must be
+# attached/declared so that the deployment (Posit Connect) installs them:
+library(glmnet)  # potassium model (Elastic Net)
+library(pls)     # magnesium model (PLS)
+library(kernlab) # iron and copper models (SVM radial, via caret)
 library(xgboost) # needed for predict() on the calcium model (XGBoost)
 library(dendextend)
 library(circlize)
@@ -36,6 +41,7 @@ in_patz_windows <- function(w) {
 # --------------------------------------------------------------------
 read_uploaded_spectra <- function(filepath, sheet_hint = NULL) {
   ext <- tolower(tools::file_ext(filepath))
+  if (ext == "xls") stop("Old .xls files are not supported: please save the file as .xlsx or .csv.")
   if (ext %in% c("xlsx", "xls")) {
     sheets <- openxlsx::getSheetNames(filepath)
     sheet  <- if (!is.null(sheet_hint) && sheet_hint %in% sheets) sheet_hint else sheets[1]
@@ -53,10 +59,17 @@ read_uploaded_spectra <- function(filepath, sheet_hint = NULL) {
 
   if (length(spec_cols) > 10) {
     wn  <- hdr_wn[spec_cols]
-    ab  <- as.matrix(df[, spec_cols, drop = FALSE])
-    suppressWarnings(storage.mode(ab) <- "numeric")
+    # values may use a decimal comma (e.g. "0,0123"): convert column by column
+    vals <- lapply(df[, spec_cols, drop = FALSE],
+                   function(x) suppressWarnings(as.numeric(gsub(",", ".", as.character(x)))))
+    ab  <- matrix(unlist(vals), nrow = nrow(df))
     ids <- if (ncol(df) > length(spec_cols)) as.character(df[[setdiff(seq_len(ncol(df)), spec_cols)[1]]])
            else paste("Sample", seq_len(nrow(df)))
+    ids[is.na(ids) | trimws(ids) == ""] <- paste("Sample", seq_along(ids))[is.na(ids) | trimws(ids) == ""]
+    # drop completely empty rows (e.g. blank lines at the end of a sheet)
+    ok_rows <- rowSums(!is.na(ab)) > 10
+    if (!any(ok_rows)) stop("No spectra with numeric values were found in the file.")
+    ids <- ids[ok_rows]; ab <- ab[ok_rows, , drop = FALSE]
     o <- order(wn)
     return(list(ids = ids, wn = wn[o], ab = ab[, o, drop = FALSE]))
   }
@@ -83,9 +96,23 @@ read_uploaded_spectra <- function(filepath, sheet_hint = NULL) {
 # values.
 # --------------------------------------------------------------------
 align_to_reference_grid <- function(wn, ab, ref_wn) {
+  ok <- !is.na(wn) & !is.na(ab)
+  wn <- wn[ok]; ab <- ab[ok]
+  if (length(wn) < 20) stop("The spectrum has too few valid points to be used.")
   same_grid <- length(wn) == length(ref_wn) && max(abs(wn - ref_wn)) < 0.05
   coverage <- mean(ref_wn >= min(wn) & ref_wn <= max(wn))
-  ab_aligned <- approx(x = wn, y = ab, xout = ref_wn, rule = 2)$y
+  # The models only use the Patz windows (965-1582, 1698-2006, 2701-2971
+  # cm-1); the spectrum must cover all of them, otherwise the missing
+  # region would be filled with constants and the prediction would be
+  # meaningless.
+  patz_pts <- ref_wn[in_patz_windows(ref_wn)]
+  patz_cov <- mean(patz_pts >= min(wn) & patz_pts <= max(wn))
+  if (patz_cov < 0.95) {
+    stop(sprintf(paste0("The spectrum covers %.0f-%.0f cm-1, but the model needs data between ",
+                        "about 965 and 2971 cm-1. Please upload a spectrum covering 900-3000 cm-1."),
+                 min(wn), max(wn)))
+  }
+  ab_aligned <- approx(x = wn, y = ab, xout = ref_wn, rule = 2, ties = mean)$y
   list(ab = ab_aligned, resampled = !same_grid, coverage = coverage)
 }
 
@@ -98,19 +125,31 @@ align_to_reference_grid <- function(wn, ab, ref_wn) {
 # Returns a row ready for predict().
 # --------------------------------------------------------------------
 preprocess_for_model <- function(bundle, ab_aligned) {
+  # Some prospectr functions are not guaranteed to keep a single-row matrix
+  # as a matrix; applying them to two identical rows and keeping the first
+  # one avoids that problem.
+  one_row <- function(f, X) f(rbind(X, X))[1, , drop = FALSE]
+
   X <- matrix(ab_aligned, nrow = 1)
   colnames(X) <- paste0("X", bundle$wavelengths_full)
 
   if (bundle$deriv > 0) {
-    Xd <- savitzkyGolay(X, m = bundle$deriv, p = 3, w = 11)
-    if (ncol(Xd) == ncol(X)) colnames(Xd) <- colnames(X)
+    cn <- colnames(X)
+    Xd <- one_row(function(M) savitzkyGolay(M, m = bundle$deriv, p = 3, w = 11), X)
+    # name the columns by position: if the filter trims the edges, the
+    # remaining columns are the central ones
+    half <- (length(cn) - ncol(Xd)) %/% 2
+    colnames(Xd) <- cn[(half + 1):(half + ncol(Xd))]
     X <- Xd
   }
   if (bundle$scatter == "SNV") {
-    X <- standardNormalVariate(X)
+    cn2 <- colnames(X)
+    X <- one_row(standardNormalVariate, X)
+    colnames(X) <- cn2
   }
   if (bundle$scatter == "MSC") {
-    ref <- bundle$msc_ref
+    ref <- as.numeric(bundle$msc_ref)
+    if (length(ref) != ncol(X)) stop("Internal error: MSC reference length does not match the spectrum.")
     fit <- lm(as.numeric(X[1, ]) ~ ref)
     X[1, ] <- (as.numeric(X[1, ]) - coef(fit)[1]) / coef(fit)[2]
   }
@@ -119,16 +158,17 @@ preprocess_for_model <- function(bundle, ab_aligned) {
   keep_patz <- in_patz_windows(wo)
   X <- X[, keep_patz, drop = FALSE]
 
-  # Centring with the training mean (same variable order)
-  if (!identical(colnames(X), names(bundle$mean_vec))) {
-    # reorder just in case, matching by name
-    common <- intersect(colnames(X), names(bundle$mean_vec))
-    X <- X[, common, drop = FALSE]
-    mu <- bundle$mean_vec[common]
-  } else {
-    mu <- bundle$mean_vec
+  # Centring with the training mean. The variables are matched by POSITION
+  # (the grid and the Patz cropping are deterministic), and then given
+  # exactly the names the model was trained with. This avoids any mismatch
+  # caused by how the wavenumbers are formatted as text.
+  mu <- bundle$mean_vec
+  if (ncol(X) != length(mu)) {
+    stop(sprintf("Internal error: the preprocessed spectrum has %d variables but the model expects %d.",
+                 ncol(X), length(mu)))
   }
-  X <- sweep(X, 2, mu, "-")
+  colnames(X) <- names(mu)
+  X <- sweep(X, 2, as.numeric(mu), "-")
 
   if (isTRUE(bundle$use_boruta) && !is.null(bundle$boruta_vars)) {
     X <- X[, bundle$boruta_vars, drop = FALSE]
@@ -142,11 +182,6 @@ preprocess_for_model <- function(bundle, ab_aligned) {
 # --------------------------------------------------------------------
 predict_spectrum <- function(bundle, wn, ab) {
   aligned <- align_to_reference_grid(wn, ab, bundle$wavelengths_full)
-  if (aligned$coverage < 0.90) {
-    warning(sprintf(
-      "The spectrum covers only %.0f%% of the expected 902.57-3000.84 cm-1 range; the prediction may not be reliable.",
-      aligned$coverage * 100))
-  }
   newrow <- preprocess_for_model(bundle, aligned$ab)
 
   if (bundle$task == "regression") {
