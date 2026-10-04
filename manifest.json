@@ -283,6 +283,35 @@
         "Archs": "x64"
       }
     },
+    "RcppEigen": {
+      "Source": "CRAN",
+      "Repository": "https://cran.rstudio.com",
+      "description": {
+        "Package": "RcppEigen",
+        "Type": "Package",
+        "Title": "'Rcpp' Integration for the 'Eigen' Templated Linear Algebra\nLibrary",
+        "Version": "0.3.3.9.4",
+        "Date": "2023-11-01",
+        "Author": "Douglas Bates, Dirk Eddelbuettel, Romain Francois, and Yixuan Qiu;\n the authors of Eigen for the included version of Eigen",
+        "Maintainer": "Dirk Eddelbuettel <edd@debian.org>",
+        "Copyright": "See the file COPYRIGHTS for various Eigen copyright details",
+        "Description": "R and 'Eigen' integration using 'Rcpp'.\n 'Eigen' is a C++ template library for linear algebra: matrices, vectors,\n numerical solvers and related algorithms.  It supports dense and sparse\n matrices on integer, floating point and complex numbers, decompositions of\n such matrices, and solutions of linear systems. Its performance on many\n algorithms is comparable with some of the best implementations based on\n 'Lapack' and level-3 'BLAS'. The 'RcppEigen' package includes the header\n files from the 'Eigen' C++ template library. Thus users do not need to\n install 'Eigen' itself in order to use 'RcppEigen'. Since version 3.1.1,\n 'Eigen' is licensed under the Mozilla Public License (version 2); earlier\n version were licensed under the GNU LGPL version 3 or later. 'RcppEigen'\n (the 'Rcpp' bindings/bridge to 'Eigen') is licensed under the GNU GPL\n version 2 or later, as is the rest of 'Rcpp'.",
+        "License": "GPL (>= 2) | file LICENSE",
+        "LazyLoad": "yes",
+        "Depends": "R (>= 3.6.0)",
+        "LinkingTo": "Rcpp",
+        "Imports": "Rcpp (>= 0.11.0), stats, utils",
+        "Suggests": "Matrix, inline, tinytest, pkgKitten, microbenchmark",
+        "URL": "https://github.com/RcppCore/RcppEigen,\nhttps://dirk.eddelbuettel.com/code/rcpp.eigen.html",
+        "BugReports": "https://github.com/RcppCore/RcppEigen/issues",
+        "NeedsCompilation": "yes",
+        "Packaged": "2023-11-01 21:13:31 UTC; edd",
+        "Repository": "CRAN",
+        "Date/Publication": "2023-11-02 22:30:09 UTC",
+        "Built": "R 4.3.2; x86_64-w64-mingw32; 2023-12-12 02:37:12 UTC; windows",
+        "Archs": "x64"
+      }
+    },
     "SQUAREM": {
       "Source": "CRAN",
       "Repository": "https://cran.rstudio.com",
@@ -1192,6 +1221,37 @@
         "Built": "R 4.3.1; ; 2025-05-13 03:45:19 UTC; windows"
       }
     },
+    "glmnet": {
+      "Source": "CRAN",
+      "Repository": "https://cran.rstudio.com",
+      "description": {
+        "Package": "glmnet",
+        "Type": "Package",
+        "Title": "Lasso and Elastic-Net Regularized Generalized Linear Models",
+        "Version": "5.1",
+        "Date": "2026-09-23",
+        "Authors@R": "c(person(\"Jerome\", \"Friedman\", role=c(\"aut\")),\n\t     person(\"Trevor\", \"Hastie\", role=c(\"aut\", \"cre\"), email = \"hastie@stanford.edu\"),\n\t     person(\"Rob\", \"Tibshirani\", role=c(\"aut\")),\n\t     person(\"Balasubramanian\", \"Narasimhan\", role=c(\"aut\")),\n\t     person(\"Kenneth\",\"Tay\",role=c(\"aut\")),\n\t     person(\"Noah\", \"Simon\", role=c(\"aut\")),\n\t     person(\"Junyang\", \"Qian\", role=c(\"ctb\")),\n\t     person(\"James\", \"Yang\", role=c(\"aut\")),\n\t     person(\"Jonathan\",\"Taylor\", role=c(\"aut\")))",
+        "Depends": "R (>= 3.6.0), Matrix (>= 1.0-6)",
+        "Imports": "methods, utils, foreach, shape, survival, Rcpp",
+        "Suggests": "knitr, lars, nnet, testthat, xfun, rmarkdown",
+        "SystemRequirements": "C++17",
+        "Description": "Extremely efficient procedures for fitting the entire lasso or elastic-net regularization path for linear regression, logistic and multinomial regression models, Poisson regression, Cox model,  multiple-response Gaussian, and the grouped multinomial regression; see <doi:10.18637/jss.v033.i01> and <doi:10.18637/jss.v039.i05>. There are two new and important additions. The family argument can be a GLM family object, which opens the door to any programmed family (<doi:10.18637/jss.v106.i01>). This comes with a modest computational cost, so when the built-in families suffice, they should be used instead.  The other novelty is the relax option, which refits each of the active sets in the path unpenalized. The algorithm uses cyclical coordinate descent in a path-wise fashion, as described in the papers cited.",
+        "License": "GPL-2",
+        "VignetteBuilder": "knitr",
+        "Encoding": "UTF-8",
+        "URL": "https://glmnet.stanford.edu",
+        "RoxygenNote": "7.3.3",
+        "LinkingTo": "RcppEigen, Rcpp",
+        "NeedsCompilation": "yes",
+        "Packaged": "2026-09-23 16:51:47 UTC; hastie",
+        "Author": "Jerome Friedman [aut],\n  Trevor Hastie [aut, cre],\n  Rob Tibshirani [aut],\n  Balasubramanian Narasimhan [aut],\n  Kenneth Tay [aut],\n  Noah Simon [aut],\n  Junyang Qian [ctb],\n  James Yang [aut],\n  Jonathan Taylor [aut]",
+        "Maintainer": "Trevor Hastie <hastie@stanford.edu>",
+        "Repository": "CRAN",
+        "Date/Publication": "2026-09-24 08:40:02 UTC",
+        "Built": "R 4.3.1; x86_64-w64-mingw32; 2026-10-04 21:34:50 UTC; windows",
+        "Archs": "x64"
+      }
+    },
     "globals": {
       "Source": "CRAN",
       "Repository": "https://cran.rstudio.com",
@@ -1602,6 +1662,29 @@
         "Repository": "CRAN",
         "Date/Publication": "2023-12-04 15:20:02 UTC",
         "Built": "R 4.3.2; x86_64-w64-mingw32; 2023-12-12 02:02:52 UTC; windows",
+        "Archs": "x64"
+      }
+    },
+    "kernlab": {
+      "Source": "CRAN",
+      "Repository": "https://cran.rstudio.com",
+      "description": {
+        "Package": "kernlab",
+        "Version": "0.9-33",
+        "Title": "Kernel-Based Machine Learning Lab",
+        "Authors@R": "c(person(\"Alexandros\", \"Karatzoglou\", role = c(\"aut\", \"cre\"),\n                    email = \"alexandros.karatzoglou@gmail.com\"),\n             person(\"Alex\", \"Smola\", role = \"aut\"),\n             person(\"Kurt\", \"Hornik\", role = \"aut\",\n\t            email = \"Kurt.Hornik@R-project.org\",\n                    comment = c(ORCID = \"0000-0003-4198-9911\")),\n\t     person(\"National ICT Australia (NICTA)\",\n\t            role = \"cph\"),\n\t     person(c(\"Michael\", \"A.\"), \"Maniscalco\",\n\t            role = c(\"ctb\", \"cph\")),\n             person(c(\"Choon\", \"Hui\"), \"Teo\", role = \"ctb\"))",
+        "Description": "Kernel-based machine learning methods for classification,\n        regression, clustering, novelty detection, quantile regression\n        and dimensionality reduction.  Among other methods 'kernlab'\n        includes Support Vector Machines, Spectral Clustering, Kernel\n        PCA, Gaussian Processes and a QP solver.",
+        "Depends": "R (>= 2.10)",
+        "Imports": "methods, stats, grDevices, graphics",
+        "LazyLoad": "Yes",
+        "License": "GPL-2",
+        "NeedsCompilation": "yes",
+        "Packaged": "2024-08-13 14:40:27 UTC; hornik",
+        "Author": "Alexandros Karatzoglou [aut, cre],\n  Alex Smola [aut],\n  Kurt Hornik [aut] (<https://orcid.org/0000-0003-4198-9911>),\n  National ICT Australia (NICTA) [cph],\n  Michael A. Maniscalco [ctb, cph],\n  Choon Hui Teo [ctb]",
+        "Maintainer": "Alexandros Karatzoglou <alexandros.karatzoglou@gmail.com>",
+        "Repository": "CRAN",
+        "Date/Publication": "2024-08-13 15:25:01 UTC",
+        "Built": "R 4.3.3; x86_64-w64-mingw32; 2024-08-15 23:50:24 UTC; windows",
         "Archs": "x64"
       }
     },
@@ -2215,6 +2298,36 @@
         "Repository": "CRAN",
         "Date/Publication": "2019-09-22 09:20:02 UTC",
         "Built": "R 4.3.1; ; 2023-10-29 00:48:42 UTC; windows"
+      }
+    },
+    "pls": {
+      "Source": "CRAN",
+      "Repository": "https://cran.rstudio.com",
+      "description": {
+        "Package": "pls",
+        "Title": "Partial Least Squares and Principal Component Regression",
+        "Version": "2.9-0",
+        "Date": "2026-02-20",
+        "Authors@R": "c(person(\"Kristian Hovde\", \"Liland\", role = c(\"aut\", \"cre\"),\n                    email = \"kristian.liland@nmbu.no\"),\n\t     person(\"Bjørn-Helge\", \"Mevik\", role = \"aut\" ,\n                    email = \"b-h@mevik.net\"),\n             person(\"Ron\", \"Wehrens\", role = \"aut\"),\n             person(\"Paul\",  \"Hiemstra\", role = \"ctb\"))",
+        "Author": "Kristian Hovde Liland [aut, cre],\n  Bjørn-Helge Mevik [aut],\n  Ron Wehrens [aut],\n  Paul Hiemstra [ctb]",
+        "Maintainer": "Kristian Hovde Liland <kristian.liland@nmbu.no>",
+        "Encoding": "UTF-8",
+        "LazyData": "yes",
+        "Description": "Multivariate regression methods\n\tPartial Least Squares Regression (PLSR), Principal Component\n\tRegression (PCR) and Canonical Powered Partial Least Squares (CPPLS).",
+        "Depends": "R (>= 3.5.0)",
+        "Imports": "grDevices, graphics, methods, stats",
+        "Suggests": "MASS, parallel, Rmpi, testthat, RUnit, knitr",
+        "License": "GPL-2",
+        "URL": "https://github.com/khliland/pls, https://khliland.github.io/pls/",
+        "BugReports": "https://github.com/khliland/pls/issues",
+        "Config/testthat/edition": "2",
+        "RoxygenNote": "7.3.3",
+        "VignetteBuilder": "knitr",
+        "NeedsCompilation": "no",
+        "Packaged": "2026-02-20 20:26:00 UTC; kristian",
+        "Repository": "CRAN",
+        "Date/Publication": "2026-02-21 06:10:07 UTC",
+        "Built": "R 4.3.1; ; 2026-10-04 21:36:59 UTC; windows"
       }
     },
     "plyr": {
@@ -3307,10 +3420,10 @@
   },
   "files": {
     "app.R": {
-      "checksum": "ef3941ac13bfd1e1b607562522d6ac93"
+      "checksum": "56dd74526f411da9b5f59d6fb2ba3991"
     },
     "data/Test_Set_App.xlsx": {
-      "checksum": "16cf53e5459eec9b1aefebcd95a9e89d"
+      "checksum": "6a90cd817b6caae3e165177f460a2dfc"
     },
     "Models/CALCIUM_model.rds": {
       "checksum": "5b1f1de67d5b1881f0ef101cb301f93c"
@@ -3328,10 +3441,10 @@
       "checksum": "9337764a05c7e4f10b48586ad245ff4a"
     },
     "R/predict_utils.R": {
-      "checksum": "90ebcf558063e74abef5ae6bc4303e3a"
+      "checksum": "98fad47eda158d7f7421fd8d23e0a13d"
     },
     "README.md": {
-      "checksum": "96ef6641bdb17d27b8919d62b3ab3057"
+      "checksum": "d8e8ec043b8ef5dcba3f486709677796"
     },
     "www/ivagro_logo.png": {
       "checksum": "615735f370550deab0258a70ca0e7a54"
