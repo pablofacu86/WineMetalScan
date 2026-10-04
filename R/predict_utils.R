@@ -20,37 +20,57 @@ in_patz_windows <- function(w) {
 }
 
 # --------------------------------------------------------------------
-# Reads a spectrum uploaded by the user (.csv or .xlsx with two
-# columns: wavenumber and absorbance, in any order and with any column
-# name) and returns a list(wn=..., ab=...) sorted by increasing
-# wavenumber.
+# Reads the file uploaded by the user and returns
+#   list(ids = <sample names>, wn = <wavenumbers>, ab = <matrix, one row per sample>)
+#
+# Two layouts are accepted (.csv or .xlsx):
+#   1) Long format, ONE sample: two columns (wavenumber, absorbance), in
+#      any order and with any column names.
+#   2) Wide format, one row per sample: the first column is the sample
+#      name and every column whose header is a number (the wavenumber) is
+#      taken as spectral data. Any other column (e.g. a "Group" or
+#      reference-value column present in the study datasets) is ignored,
+#      so it is NOT required and is never used for prediction.
+# If an .xlsx file has several sheets, the sheet whose name matches the
+# analyte (sheet_hint) is used; otherwise the first sheet.
 # --------------------------------------------------------------------
-read_uploaded_spectrum <- function(filepath) {
+read_uploaded_spectra <- function(filepath, sheet_hint = NULL) {
   ext <- tolower(tools::file_ext(filepath))
-  df <- if (ext %in% c("xlsx", "xls")) {
-    openxlsx::read.xlsx(filepath, sheet = 1)
+  if (ext %in% c("xlsx", "xls")) {
+    sheets <- openxlsx::getSheetNames(filepath)
+    sheet  <- if (!is.null(sheet_hint) && sheet_hint %in% sheets) sheet_hint else sheets[1]
+    df <- openxlsx::read.xlsx(filepath, sheet = sheet, check.names = FALSE)
   } else {
-    first_line <- readLines(filepath, n = 1)
+    first_line <- readLines(filepath, n = 1, warn = FALSE)
     sep_char <- if (grepl(";", first_line)) ";" else ","
-    read.csv(filepath, header = TRUE, sep = sep_char)
+    df <- read.csv(filepath, header = TRUE, sep = sep_char, check.names = FALSE)
   }
-  if (ncol(df) < 2) stop("The file must have at least two columns: wavenumber and absorbance.")
-  # If the file has 547 columns (same format as the study datasets: ID +
-  # Group + 545 variables), the spectrum row is used directly.
-  if (ncol(df) > 10) {
-    wn <- suppressWarnings(as.numeric(gsub(",", ".", colnames(df)[-c(1, 2)], fixed = TRUE)))
-    ab <- as.numeric(df[1, -c(1, 2)])
-    ok <- !is.na(wn)
-    wn <- wn[ok]; ab <- ab[ok]
-    o  <- order(wn)
-    return(list(wn = wn[o], ab = ab[o]))
+  if (ncol(df) < 2) stop("The file must have at least two columns.")
+
+  # numeric header -> candidate spectral column (wide format)
+  hdr_wn <- suppressWarnings(as.numeric(gsub(",", ".", gsub("^X", "", colnames(df)))))
+  spec_cols <- which(!is.na(hdr_wn) & hdr_wn > 500 & hdr_wn < 4500)
+
+  if (length(spec_cols) > 10) {
+    wn  <- hdr_wn[spec_cols]
+    ab  <- as.matrix(df[, spec_cols, drop = FALSE])
+    suppressWarnings(storage.mode(ab) <- "numeric")
+    ids <- if (ncol(df) > length(spec_cols)) as.character(df[[setdiff(seq_len(ncol(df)), spec_cols)[1]]])
+           else paste("Sample", seq_len(nrow(df)))
+    o <- order(wn)
+    return(list(ids = ids, wn = wn[o], ab = ab[, o, drop = FALSE]))
   }
-  # Two-column format: wavenumber / absorbance
-  num1 <- suppressWarnings(as.numeric(df[[1]])); num2 <- suppressWarnings(as.numeric(df[[2]]))
-  if (mean(!is.na(num1)) > mean(!is.na(num2))) { wn <- num1; ab <- num2 } else { wn <- num2; ab <- num1 }
+
+  # long format: wavenumber / absorbance (one sample)
+  num1 <- suppressWarnings(as.numeric(gsub(",", ".", df[[1]])))
+  num2 <- suppressWarnings(as.numeric(gsub(",", ".", df[[2]])))
+  if (mean(!is.na(num1)) < 0.9 && mean(!is.na(num2)) < 0.9)
+    stop("Could not find numeric wavenumber/absorbance columns in the file.")
+  # wavenumbers (~900-3000) are much larger than absorbances (~0-5)
+  if (mean(num1, na.rm = TRUE) > mean(num2, na.rm = TRUE)) { wn <- num1; ab <- num2 } else { wn <- num2; ab <- num1 }
   ok <- !is.na(wn) & !is.na(ab)
   o  <- order(wn[ok])
-  list(wn = wn[ok][o], ab = ab[ok][o])
+  list(ids = "Uploaded spectrum", wn = wn[ok][o], ab = matrix(ab[ok][o], nrow = 1))
 }
 
 # --------------------------------------------------------------------
