@@ -53,9 +53,13 @@ models, no need to load it with `library()`).
 
 ## How prediction on a new spectrum works
 
-1. The user uploads a file (.csv or .xlsx) with wavenumber and absorbance,
-   or a file with the same row format as the study's datasets (ID,
-   reference value, 545 variables).
+1. The user uploads a .csv or .xlsx file in one of two layouts: (A) two
+   columns, wavenumber and absorbance (one spectrum); or (B) one row per
+   sample, with the sample name in the first column and one column per
+   wavenumber (numeric headers). Non-spectral columns (e.g. "Group") are
+   ignored, so the reference value is never required nor used. If the file
+   contains several samples, the user chooses which one to predict; if an
+   .xlsx has several sheets, the sheet named after the analyte is used.
 2. The spectrum is **realigned by linear interpolation** to the model's
    reference grid (902.57-3000.84 cm-1, ~3.86 cm-1 step). This is what
    allows accepting spectra from a different instrument, with a slightly
@@ -82,4 +86,5 @@ models, no need to load it with `library()`).
   resolution, signal-to-noise ratio). Whenever possible, it is recommended
   to validate with samples of known concentration from the instrument in
   use before trusting routine predictions (that is what the samples in
-  `data/Test_Set_App.xlsx`, with known reference values, are for).
+  `data/Test_Set_App.xlsx`, with known reference values written in each
+  sample name as `REF=...`, are for).

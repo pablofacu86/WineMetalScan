@@ -266,10 +266,38 @@ analyteUI <- function(id, cfg) {
         card(
           card_header("Predict from your own spectrum"),
           card_body(
-            p("Upload an FT-MIR spectrum (902.57 to 3000.84 cm\u207b\u00b9). .csv or .xlsx with two columns ",
-              "(wavenumber, absorbance) is accepted, or the same row format as the study's datasets.",
+            p("Upload an FT-MIR spectrum covering 900\u20133000 cm\u207b\u00b9 as a .csv or .xlsx file, ",
+              "using one of the two layouts below. Do NOT include the concentration or class: ",
+              "it is not needed (and never used) for prediction.",
               style = "font-size:0.9em; color:#555"),
+            accordion(
+              open = FALSE,
+              accordion_panel(
+                "How to format your file (click to see examples)",
+                tags$b("Option A \u2014 one spectrum, two columns"),
+                tags$table(class = "table table-sm table-bordered w-auto mt-1",
+                  tags$thead(tags$tr(tags$th("Wavenumber (cm\u207b\u00b9)"), tags$th("Absorbance"))),
+                  tags$tbody(
+                    tags$tr(tags$td("902.57"), tags$td("0.0123")),
+                    tags$tr(tags$td("906.42"), tags$td("0.0145")),
+                    tags$tr(tags$td("910.28"), tags$td("0.0161")),
+                    tags$tr(tags$td("\u2026"), tags$td("\u2026")))),
+                tags$b("Option B \u2014 several samples, one row per sample"),
+                tags$table(class = "table table-sm table-bordered mt-1", style = "font-size:0.85em",
+                  tags$thead(tags$tr(tags$th("Sample name"), tags$th("902.57"), tags$th("906.42"),
+                                      tags$th("910.28"), tags$th("\u2026"), tags$th("3000.84"))),
+                  tags$tbody(
+                    tags$tr(tags$td("Wine_1"), tags$td("0.0123"), tags$td("0.0145"), tags$td("0.0161"), tags$td("\u2026"), tags$td("0.0072")),
+                    tags$tr(tags$td("Wine_2"), tags$td("0.0119"), tags$td("0.0140"), tags$td("0.0158"), tags$td("\u2026"), tags$td("0.0069")))),
+                tags$ul(style = "font-size:0.85em",
+                  tags$li("First row = headers. In Option B the headers of the spectral columns must be the wavenumbers (numbers)."),
+                  tags$li("The first column is used only as the sample name. Any other non-spectral column (e.g. 'Group') is ignored."),
+                  tags$li("If your instrument uses a different step or range, the spectrum is automatically realigned (it must still cover ~900\u20133000 cm\u207b\u00b9)."),
+                  tags$li("Practice files with known values are in the 'Download validation dataset' button on the left; the true value is written in each sample name (REF=...)."))
+              )
+            ),
             fileInput(ns("spectrum_file"), NULL, accept = c(".csv", ".xlsx")),
+            uiOutput(ns("sample_picker_ui")),
             actionButton(ns("btn_predict"), "Predict", class = "btn-primary mb-3"),
             uiOutput(ns("prediction_ui"))
           )
@@ -287,7 +315,14 @@ analyteServer <- function(id, cfg) {
     # ---------------- Downloads ----------------
     output$dl_sample <- downloadHandler(
       filename = function() sprintf("Validation_samples_%s.xlsx", cfg$symbol),
-      content = function(file) file.copy(cfg$sample_file, file)
+      content = function(file) {
+        # export ONLY this analyte's sheet (not the whole multi-sheet workbook)
+        df <- openxlsx::read.xlsx(cfg$sample_file, sheet = cfg$sample_sheet, check.names = FALSE)
+        wb <- openxlsx::createWorkbook()
+        openxlsx::addWorksheet(wb, cfg$sample_sheet)
+        openxlsx::writeData(wb, cfg$sample_sheet, df)
+        openxlsx::saveWorkbook(wb, file, overwrite = TRUE)
+      }
     )
     output$dl_model_html <- downloadHandler(
       filename = function() sprintf("Model_sheet_%s.html", cfg$symbol),
@@ -351,7 +386,7 @@ analyteServer <- function(id, cfg) {
       ggplot(b$scatter_data, aes(x = Actual, y = Predicted, color = Set)) +
         geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey40") +
         geom_point(size = 2.5, alpha = 0.8) +
-        scale_color_manual(values = c(Train = "#457B9D", Test = cfg$color)) +
+        scale_color_manual(values = c(Train = "#457B9D", Test = "#E07B00")) +
         labs(x = sprintf("Measured %s (%s)", cfg$label, cfg$unit),
              y = sprintf("Predicted %s (%s)", cfg$label, cfg$unit), color = NULL) +
         theme_minimal(base_size = 13)
@@ -378,19 +413,53 @@ analyteServer <- function(id, cfg) {
     })
 
     # ---------------- Prediction on a new spectrum ----------------
+    # The uploaded file is parsed as soon as it arrives; problems are shown
+    # as a visible message (Shiny hides raw R errors on the server).
+    parsed <- reactive({
+      req(input$spectrum_file)
+      tryCatch(
+        read_uploaded_spectra(input$spectrum_file$datapath, sheet_hint = id),
+        error = function(e) list(error = conditionMessage(e)))
+    })
+
+    output$sample_picker_ui <- renderUI({
+      p <- parsed()
+      if (!is.null(p$error)) {
+        return(div(class = "alert alert-danger", style = "font-size:0.85em",
+                    "Could not read the file: ", p$error))
+      }
+      if (length(p$ids) > 1) {
+        selectInput(session$ns("sample_pick"),
+                    sprintf("The file contains %d samples. Choose the one to predict:", length(p$ids)),
+                    choices = setNames(seq_along(p$ids), p$ids))
+      } else {
+        div(class = "text-muted", style = "font-size:0.85em", "1 spectrum detected.")
+      }
+    })
+
     pred_result <- eventReactive(input$btn_predict, {
       b <- bundle()
-      validate(need(!is.null(b), "The model for this analyte is not available yet."))
-      validate(need(!is.null(input$spectrum_file), "Upload a spectrum first."))
-      spec <- tryCatch(read_uploaded_spectrum(input$spectrum_file$datapath),
-                        error = function(e) NULL)
-      validate(need(!is.null(spec), "Could not read the file. Check the format (wavenumber / absorbance)."))
-      predict_spectrum(b, spec$wn, spec$ab)
+      if (is.null(b)) return(list(error = "The model for this analyte is not available yet."))
+      if (is.null(input$spectrum_file)) return(list(error = "Upload a spectrum first."))
+      p <- parsed()
+      if (!is.null(p$error)) return(list(error = paste("Could not read the file:", p$error)))
+      i <- if (length(p$ids) > 1) as.integer(input$sample_pick) else 1L
+      if (is.na(i) || i < 1 || i > nrow(p$ab)) i <- 1L
+      tryCatch({
+        res <- predict_spectrum(b, p$wn, p$ab[i, ])
+        res$sample_id <- p$ids[i]
+        res
+      }, error = function(e) list(error = paste("Prediction failed:", conditionMessage(e))))
     })
 
     output$prediction_ui <- renderUI({
       res <- pred_result()
       ns <- session$ns
+      if (!is.null(res$error)) {
+        return(div(class = "alert alert-danger", res$error))
+      }
+      sample_line <- div(style = "font-size:0.85em;color:#666;margin-bottom:6px;",
+                         "Sample: ", tags$b(res$sample_id))
       note <- if (isTRUE(res$resampled))
         div(class = "alert alert-info", style = "font-size:0.85em",
             "The uploaded spectrum did not exactly match the model's wavenumber grid; ",
@@ -399,7 +468,7 @@ analyteServer <- function(id, cfg) {
 
       if (res$task == "regression") {
         tagList(
-          note,
+          sample_line, note,
           div(class = "p-3 mb-2", style = sprintf("background:%s10;border-left:4px solid %s;", cfg$color, cfg$color),
               h3(sprintf("%.1f %s", res$value, cfg$unit), style = sprintf("color:%s", cfg$color)),
               p(sprintf("Approximate interval (95%%): %.1f \u2013 %.1f %s", res$lower, res$upper, cfg$unit)),
@@ -411,7 +480,7 @@ analyteServer <- function(id, cfg) {
       } else {
         probs <- res$probabilities
         tagList(
-          note,
+          sample_line, note,
           div(class = "p-3 mb-2", style = sprintf("background:%s10;border-left:4px solid %s;", cfg$color, cfg$color),
               h3(res$class, style = sprintf("color:%s", cfg$color)),
               lapply(names(probs), function(cl) {
