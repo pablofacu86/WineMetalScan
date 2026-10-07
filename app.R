@@ -67,6 +67,7 @@ COMMON_INFO <- list(
 IVAGRO_URL <- "https://ivagro.uca.es"
 APP_CODE_URL   <- "https://github.com/pablofacu86/WineMetalScan"
 STUDY_CODE_URL <- "https://github.com/pablofacu86/Wine-Metals-FTMIR-ML"
+STUDY_DOI_URL  <- "https://doi.org/10.5281/zenodo.23199425"   # archived version (v1.1.0) of the study repository
 
 # --------------------------------------------------------------------
 # Analyte-specific configuration: scope, winning model, validation
@@ -80,7 +81,7 @@ ANALYTES <- list(
     label = "Potassium", symbol = "K", unit = "mg/L", task = "regression",
     color = "#7B1E3A",
     scope_range = "290 - 1379 mg/L", n_samples = "100 (46 white, 54 red)",
-    model_desc = "Elastic Net, no derivative or scatter correction, no variable selection (310 variables).",
+    model_desc = "Lasso regression, Savitzky\u2013Golay smoothing, no scatter correction, no variable selection (310 variables).",
     spiked = FALSE,
     model_file = file.path(MODELS_DIR, "POTASSIUM_model.rds"),
     sample_file = file.path(DATA_DIR, "Test_Set_App.xlsx"), sample_sheet = "POTASSIUM"
@@ -89,7 +90,7 @@ ANALYTES <- list(
     label = "Magnesium", symbol = "Mg", unit = "mg/L", task = "regression",
     color = "#3A5A40",
     scope_range = "47.9 - 118 mg/L", n_samples = "100 (46 white, 54 red)",
-    model_desc = "PLS (5 latent variables), 1st derivative + MSC, Boruta selection (45 variables).",
+    model_desc = "PLS (7 latent variables), SNV followed by 1st derivative, no variable selection (310 variables).",
     spiked = FALSE,
     model_file = file.path(MODELS_DIR, "MAGNESIUM_model.rds"),
     sample_file = file.path(DATA_DIR, "Test_Set_App.xlsx"), sample_sheet = "MAGNESIUM"
@@ -99,7 +100,7 @@ ANALYTES <- list(
     color = "#1D3557",
     scope_range = "45.0 - 295 mg/L (range extended by spiking, see note below)",
     n_samples = "160 (79 white, 81 red; includes spiked samples)",
-    model_desc = "XGBoost, 1st derivative + SNV, Boruta selection (47 variables).",
+    model_desc = "XGBoost, 1st derivative, Boruta selection (59 variables).",
     spiked = TRUE,
     model_file = file.path(MODELS_DIR, "CALCIUM_model.rds"),
     sample_file = file.path(DATA_DIR, "Test_Set_App.xlsx"), sample_sheet = "CALCIUM"
@@ -109,7 +110,7 @@ ANALYTES <- list(
     color = "#BC6C25",
     scope_range = "Binary classification relative to the 10 mg/L limit",
     n_samples = "160 (69 white, 91 red; includes spiked samples)",
-    model_desc = "SVM (radial kernel), no additional preprocessing, Boruta selection (58 variables).",
+    model_desc = "SVM (radial kernel), MSC followed by smoothing, Boruta selection (46 variables).",
     spiked = TRUE, limit = 10,
     model_file = file.path(MODELS_DIR, "IRON_model.rds"),
     sample_file = file.path(DATA_DIR, "Test_Set_App.xlsx"), sample_sheet = "IRON"
@@ -119,7 +120,7 @@ ANALYTES <- list(
     color = "#606C38",
     scope_range = "Binary classification relative to the 1 mg/L limit",
     n_samples = "159 (70 white, 89 red; includes spiked samples)",
-    model_desc = "SVM (radial kernel), SNV correction, Boruta selection (77 variables).",
+    model_desc = "XGBoost, SNV followed by 1st derivative, Boruta selection (53 variables).",
     spiked = TRUE, limit = 1,
     model_file = file.path(MODELS_DIR, "COPPER_model.rds"),
     sample_file = file.path(DATA_DIR, "Test_Set_App.xlsx"), sample_sheet = "COPPER"
@@ -376,6 +377,9 @@ analyteServer <- function(id, cfg) {
           h5("Winning model hyperparameters"),
           p(paste(sprintf("%s = %s", names(b$hyperparams), unlist(b$hyperparams)), collapse = "; ")),
           DTOutput(ns("metrics_table")),
+          p(sprintf("Positive class = samples above the limit (higher than %g %s): sensitivity is the share of those samples correctly detected, specificity the share of samples below the limit correctly identified. Metrics are for the test set.",
+                    cfg$limit, cfg$unit),
+            style = "font-size:0.85em;color:#666"),
           plotOutput(ns("confusion_plot"), height = "320px"),
           tags$hr(),
           h5("Hierarchical clustering of the samples (unsupervised)"),
@@ -634,7 +638,9 @@ home_panel <- div(
     tags$a(href = APP_CODE_URL, target = "_blank", gsub("https://github.com/", "", APP_CODE_URL))),
   p(class = "text-muted", style = "font-size:0.85em",
     "Study pipelines, raw spectra and reference data: ",
-    tags$a(href = STUDY_CODE_URL, target = "_blank", gsub("https://github.com/", "", STUDY_CODE_URL)))
+    tags$a(href = STUDY_CODE_URL, target = "_blank", gsub("https://github.com/", "", STUDY_CODE_URL)),
+    " (archived version: ",
+    tags$a(href = STUDY_DOI_URL, target = "_blank", gsub("https://doi.org/", "doi:", STUDY_DOI_URL)), ")")
 )
 
 # ==========================================================================

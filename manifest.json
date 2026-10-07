@@ -3420,31 +3420,34 @@
   },
   "files": {
     "app.R": {
-      "checksum": "56dd74526f411da9b5f59d6fb2ba3991"
+      "checksum": "4d8389eb31481d72d220f3fce5dcbb9e"
     },
     "data/Test_Set_App.xlsx": {
       "checksum": "6a90cd817b6caae3e165177f460a2dfc"
     },
+    "Models/build_summary.csv": {
+      "checksum": "2bdf5aeff8451b80a1cb3f86faadfb09"
+    },
     "Models/CALCIUM_model.rds": {
-      "checksum": "5b1f1de67d5b1881f0ef101cb301f93c"
+      "checksum": "b8d07bedf05fbbeaf22dc5a67b966674"
     },
     "Models/COPPER_model.rds": {
-      "checksum": "a0c5eb63a7b891a9c787f38c10a937b0"
+      "checksum": "e7d57bdf3ea92be78e38c29deb6c6a36"
     },
     "Models/IRON_model.rds": {
-      "checksum": "5f8c27f3c57c45591f80cd0e404f512d"
+      "checksum": "dfa07fba08aa8f98af6ffd84c1be9d2c"
     },
     "Models/MAGNESIUM_model.rds": {
-      "checksum": "d7180f9cff14ceed367228e54c980b1c"
+      "checksum": "6d6ca88fde3d557b4cd1405737d2a2de"
     },
     "Models/POTASSIUM_model.rds": {
-      "checksum": "9337764a05c7e4f10b48586ad245ff4a"
+      "checksum": "b7000ce99d4f3cc02d16847a33de732d"
     },
     "R/predict_utils.R": {
-      "checksum": "98fad47eda158d7f7421fd8d23e0a13d"
+      "checksum": "0a851ff6c969c10779ee4910969dcb33"
     },
     "README.md": {
-      "checksum": "d8e8ec043b8ef5dcba3f486709677796"
+      "checksum": "45270339fd7b240030e3c775f0269acb"
     },
     "www/ivagro_logo.png": {
       "checksum": "615735f370550deab0258a70ca0e7a54"
