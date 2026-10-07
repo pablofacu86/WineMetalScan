@@ -4,16 +4,20 @@
 # it was preprocessed during training (see Build_Deployment_Models.R),
 # and to generate a prediction from an already-trained model (.rds
 # bundle).
+#
+# Winning models: potassium = Lasso (glmnet), magnesium = PLS (pls),
+# calcium and copper = XGBoost (xgboost), iron = radial SVM (kernlab, via
+# caret).
 # ==========================================================================
 
 library(prospectr)
 library(caret)   # needed for predict() on the trained models
 # caret calls these packages internally when predicting, but they must be
 # attached/declared so that the deployment (Posit Connect) installs them:
-library(glmnet)  # potassium model (Elastic Net)
+library(glmnet)  # potassium model (Lasso)
 library(pls)     # magnesium model (PLS)
-library(kernlab) # iron and copper models (SVM radial, via caret)
-library(xgboost) # needed for predict() on the calcium model (XGBoost)
+library(kernlab) # iron model (SVM radial, via caret)
+library(xgboost) # calcium and copper models (XGBoost)
 library(dendextend)
 library(circlize)
 
@@ -118,10 +122,15 @@ align_to_reference_grid <- function(wn, ab, ref_wn) {
 
 # --------------------------------------------------------------------
 # Preprocesses a spectrum already aligned to the reference grid, with
-# the same sequence used in training: derivative (if applicable) on
-# the full spectrum, scatter correction (SNV or MSC with the training
-# reference), cropping to the Patz windows, centring with the training
-# mean, and Boruta variable selection (if the winning model used it).
+# the same sequence used in training. Current bundles
+# (bundle$scatter_first = TRUE):
+#   scatter correction (SNV, or MSC with the training reference) ->
+#   Savitzky-Golay (order 0 = smoothing, 1 = first derivative; p = 3,
+#   w = 11) -> cropping to the Patz windows -> removal of constant
+#   variables -> centring with the training mean -> Boruta variables (if
+#   the winning model used them).
+# Bundles built before this change (no scatter_first field) used the
+# previous order: derivative (only if > 0) -> scatter correction.
 # Returns a row ready for predict().
 # --------------------------------------------------------------------
 preprocess_for_model <- function(bundle, ab_aligned) {
@@ -130,33 +139,54 @@ preprocess_for_model <- function(bundle, ab_aligned) {
   # one avoids that problem.
   one_row <- function(f, X) f(rbind(X, X))[1, , drop = FALSE]
 
+  new_order <- isTRUE(bundle$scatter_first)
+
   X <- matrix(ab_aligned, nrow = 1)
   colnames(X) <- paste0("X", bundle$wavelengths_full)
 
-  if (bundle$deriv > 0) {
+  savgol_step <- function(X) {
     cn <- colnames(X)
     Xd <- one_row(function(M) savitzkyGolay(M, m = bundle$deriv, p = 3, w = 11), X)
-    # name the columns by position: if the filter trims the edges, the
+    # name the columns by position: the filter trims the edges, so the
     # remaining columns are the central ones
     half <- (length(cn) - ncol(Xd)) %/% 2
     colnames(Xd) <- cn[(half + 1):(half + ncol(Xd))]
-    X <- Xd
+    Xd
   }
-  if (bundle$scatter == "SNV") {
-    cn2 <- colnames(X)
-    X <- one_row(standardNormalVariate, X)
-    colnames(X) <- cn2
+  scatter_step <- function(X) {
+    if (bundle$scatter == "SNV") {
+      cn <- colnames(X)
+      X <- one_row(standardNormalVariate, X)
+      colnames(X) <- cn
+    }
+    if (bundle$scatter == "MSC") {
+      ref <- as.numeric(bundle$msc_ref)
+      if (length(ref) != ncol(X)) stop("Internal error: MSC reference length does not match the spectrum.")
+      fit <- lm(as.numeric(X[1, ]) ~ ref)
+      X[1, ] <- (as.numeric(X[1, ]) - coef(fit)[1]) / coef(fit)[2]
+    }
+    X
   }
-  if (bundle$scatter == "MSC") {
-    ref <- as.numeric(bundle$msc_ref)
-    if (length(ref) != ncol(X)) stop("Internal error: MSC reference length does not match the spectrum.")
-    fit <- lm(as.numeric(X[1, ]) ~ ref)
-    X[1, ] <- (as.numeric(X[1, ]) - coef(fit)[1]) / coef(fit)[2]
+
+  if (new_order) {
+    X <- savgol_step(scatter_step(X))                 # smoothing is always applied (SG0, SG1)
+  } else {
+    if (bundle$deriv > 0) X <- savgol_step(X)
+    X <- scatter_step(X)
   }
 
   wo <- parse_wn(colnames(X))
   keep_patz <- in_patz_windows(wo)
   X <- X[, keep_patz, drop = FALSE]
+
+  # constant variables that were removed when the model was built
+  if (!is.null(bundle$var_keep)) {
+    if (length(bundle$var_keep) != ncol(X)) {
+      stop(sprintf("Internal error: the preprocessed spectrum has %d variables but the model expects %d.",
+                   ncol(X), length(bundle$var_keep)))
+    }
+    X <- X[, bundle$var_keep, drop = FALSE]
+  }
 
   # Centring with the training mean. The variables are matched by POSITION
   # (the grid and the Patz cropping are deterministic), and then given
@@ -184,9 +214,15 @@ predict_spectrum <- function(bundle, wn, ab) {
   aligned <- align_to_reference_grid(wn, ab, bundle$wavelengths_full)
   newrow <- preprocess_for_model(bundle, aligned$ab)
 
+  # XGBoost needs a numeric matrix with the training columns in the training order
+  xgb_matrix <- function(df) {
+    cols <- if (!is.null(bundle$feature_names)) bundle$feature_names else colnames(df)
+    as.matrix(df[, cols, drop = FALSE])
+  }
+
   if (bundle$task == "regression") {
     pred <- if (identical(bundle$algo, "XGB")) {
-      as.numeric(predict(bundle$model, as.matrix(newrow)))
+      as.numeric(predict(bundle$model, xgb_matrix(newrow)))
     } else {
       as.numeric(predict(bundle$model, newrow))
     }
@@ -194,8 +230,16 @@ predict_spectrum <- function(bundle, wn, ab) {
     list(task = "regression", value = pred, lower = pred - unc, upper = pred + unc,
          uncertainty = unc, resampled = aligned$resampled, coverage = aligned$coverage)
   } else {
-    cls  <- as.character(predict(bundle$model, newrow))
-    prob <- predict(bundle$model, newrow, type = "prob")
+    if (identical(bundle$algo, "XGB")) {
+      # binary:logistic -> probability of the 2nd level (positive class, "Higher")
+      lv    <- bundle$class_names
+      p_pos <- as.numeric(predict(bundle$model, xgb_matrix(newrow)))
+      cls   <- lv[ifelse(p_pos > 0.5, 2, 1)]
+      prob  <- setNames(data.frame(1 - p_pos, p_pos), lv)
+    } else {
+      cls  <- as.character(predict(bundle$model, newrow))
+      prob <- predict(bundle$model, newrow, type = "prob")
+    }
     list(task = "classification", class = cls, probabilities = prob,
          pos_class = bundle$pos_class, resampled = aligned$resampled, coverage = aligned$coverage)
   }
@@ -222,7 +266,10 @@ render_dendrogram <- function(bundle, accent_color, limit_value = NULL, unit = N
   classes    <- bundle$class_names
   if (is.null(classes)) classes <- unique(y_ord)
 
-  cls_colors  <- setNames(c(accent_color, "#457B9D")[seq_along(classes)], classes)
+  # same colours as in the article: above the limit = red, below = blue
+  cls_colors  <- setNames(rep(accent_color, length(classes)), classes)
+  cls_colors[grepl("^Higher", classes)] <- "#E41A1C"
+  cls_colors[grepl("^Lower",  classes)] <- "#377EB8"
   class_short <- setNames(sub("^([A-Za-z]+).*", "\\1", gsub("\\.", " ", classes)), classes)
 
   leaf_short   <- class_short[y_ord]
